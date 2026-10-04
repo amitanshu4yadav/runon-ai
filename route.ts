@@ -1,2 +1,27 @@
-import {NextRequest,NextResponse} from 'next/server'; import {runModel} from '../../../lib/agent';
-export async function POST(req:NextRequest){try{const {task}=await req.json();if(!task)return NextResponse.json({error:'Task is required'},{status:400});const result=await runModel([{role:'system',content:'You are Primez Agent, a professional task-execution assistant. Break the user goal into practical steps, use concise safe action summaries, and return a useful result. Never claim to have used a tool you were not actually given. If an external action would send, purchase, delete, publish, or modify something, ask for approval first.'},{role:'user',content:task}]);return NextResponse.json({result,status:'completed'})}catch(e){return NextResponse.json({error:e instanceof Error?e.message:'Agent error'},{status:500})}}
+import { NextResponse } from 'next/server';
+import { createClient } from '@/lib/supabase/server';
+import { supabaseConfigured } from '@/lib/config';
+
+export const dynamic = 'force-dynamic';
+
+export async function GET(request: Request) {
+  const { searchParams, origin } = new URL(request.url);
+  const code = searchParams.get('code');
+  const rawNext = searchParams.get('next') ?? '/dashboard';
+  // Only allow same-site relative paths to prevent open redirects.
+  const next = rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : '/dashboard';
+
+  if (code && supabaseConfigured) {
+    const supabase = await createClient();
+    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    if (!error) {
+      const forwardedHost = request.headers.get('x-forwarded-host');
+      const isLocal = process.env.NODE_ENV === 'development';
+      if (!isLocal && forwardedHost) {
+        return NextResponse.redirect(`https://${forwardedHost}${next}`);
+      }
+      return NextResponse.redirect(`${origin}${next}`);
+    }
+  }
+  return NextResponse.redirect(`${origin}/login?error=auth`);
+}
